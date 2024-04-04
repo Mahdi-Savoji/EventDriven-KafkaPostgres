@@ -1,0 +1,11 @@
+FROM postgres:${PG_VERSION:-latest}
+
+RUN apt-get update && apt-get install -y cron
+
+COPY backup-weekly.sh .
+COPY cronjob-backup.sh .
+
+RUN chmod +x backup-weekly.sh
+RUN chmod +x cronjob-backup.sh
+
+CMD ["bash", "cronjob-backup.sh"]

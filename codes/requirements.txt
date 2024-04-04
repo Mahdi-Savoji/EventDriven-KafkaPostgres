@@ -1,0 +1,4 @@
+kafka-python
+requests
+SQLAlchemy
+psycopg2-binary

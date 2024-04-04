@@ -1,0 +1,7 @@
+python3-pip
+
+
+kafka
+kafka-python
+requests
+

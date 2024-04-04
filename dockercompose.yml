@@ -1,0 +1,166 @@
+version: '3'
+
+services:
+
+
+  postgresql:
+    container_name: postgres-kafka
+    hostname: postgres
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile.postgresql
+    image: postgres:${PG_VERSION:-latest}
+    volumes:
+      - ./${DATA_FOLDER:-db_data}:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d
+      - ./backup:/backup
+      - ./archive:/archive
+      - ./tblspace:/tblspace
+    environment:
+      - POSTGRES_PASSWORD=${DB_PASS:-postgres123}
+      - POSTGRES_USER=${DB_USER:-postgres}
+      - POSTGRES_DB=${DB_NAME:-dblab} 
+      - POSTGRES_HOST_AUTH_METHOD=trust
+    networks:
+      - services
+    restart: on-failure:10
+    ports:
+      - ${PORT:-5434}:5432
+
+ 
+  # nocodb: 
+  #   depends_on: 
+  #     root_db: 
+  #       condition: service_healthy
+  #   environment: 
+  #     NC_DB: "pg://root_db:5432?u=postgres&p=password&d=root_db"
+  #   image: "nocodb/nocodb:latest"
+  #   ports: 
+  #     - "5434:5432"
+  #   restart: on-failure:10
+  #   volumes: 
+  #     - "nc_data:/usr/app/data"
+  # root_db: 
+  #   environment: 
+  #     POSTGRES_DB: dblab
+  #     POSTGRES_PASSWORD: postgres123
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_HOST_AUTH_METHOD: trust
+  #   healthcheck: 
+  #     interval: 10s
+  #     retries: 10
+  #     test: "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""
+  #     timeout: 2s
+  #   image: postgres
+  #   volumes:
+  #     - ./${DATA_FOLDER:-db_data}:/var/lib/postgresql/data
+  #     - ./postgres-init:/docker-entrypoint-initdb.d
+  #     - ./backup:/backup
+  #     - ./archive:/archive
+  #     - ./tblspace:/tblspace
+  #   networks:
+  #     - services
+  #   restart: on-failure:10
+  #   ports:
+  #     - ${PORT:-5434}:5432
+  # volumes: 
+  #   db_data: {}
+  #   nc_data: {}
+  # networks:
+  #     - services
+
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:${CP_VERSION:-latest}
+    hostname: kafka-zookeeper
+    # container_name: kafka-zookeeper
+    ports:
+      - "2182:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - services
+    restart: on-failure:10
+    volumes: 
+      - ./kafka_volume/zoo/data:/var/lib/zookeeper/data:z
+      - ./kafka_volume/zoo/log:/var/lib/zookeeper/log:z
+
+
+
+  kafka1:
+    image: confluentinc/cp-kafka:${CP_VERSION:-latest}
+    hostname: kafka1
+    container_name: kafka1
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092" 
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'kafka-zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: EXTERNAL:PLAINTEXT,INTERNAL:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: EXTERNAL://localhost:9092,INTERNAL://kafka1:29092
+      KAFKA_LISTENERS: EXTERNAL://:9092,INTERNAL://:29092
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_CONFLUENT_LICENSE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CONFLUENT_BALANCER_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: localhost
+      CONFLUENT_METRICS_REPORTER_BOOTSTRAP_SERVERS: kafka1:29092
+      CONFLUENT_METRICS_REPORTER_TOPIC_REPLICAS: 1
+      CONFLUENT_METRICS_ENABLE: 'true'
+      CONFLUENT_SUPPORT_CUSTOMER_ID: 'anonymous'
+    networks:
+      - services
+    restart: on-failure:10
+    volumes: 
+      - ./kafka_volume/broker/data:/var/lib/kafka/data:z
+
+  kafkaHQ:
+    image: tchiotludo/akhq
+    # container_name: kafkaHQ
+    hostname: kafkaHQ
+    # depends_on:
+    #   - kafka1
+    ports :
+      - 9100:8080
+    environment:
+      AKHQ_CONFIGURATION: |
+        akhq:
+          connections:
+            docker-kafka-server:
+              properties:
+                bootstrap.servers: "kafka1:29092"                
+    networks:
+      - services
+    restart: on-failure:10
+
+
+  ubun2:
+    tty: true
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+        - kafka1
+        - kafkaHQ
+        - zookeeper
+        - postgresql
+    volumes:
+      - ./codes:/codes
+    networks:
+      - services
+
+
+
+
+    
+networks: 
+  services:
+    driver: bridge
